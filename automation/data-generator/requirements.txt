@@ -1,0 +1,3 @@
+httpx
+asyncio
+python-jose[cryptography]

@@ -1,0 +1,89 @@
+services:
+  # 1. The Library (Postgres DB)
+  postgres:
+    image: postgres:latest
+    container_name: securify-postgres
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=securify
+      - POSTGRES_USER=postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. The Post Office (Redis)
+  redis:
+    image: redis:latest
+    container_name: securify-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. The Front Desk (Ingest API)
+  event-ingest-stream:
+    container_name: securify-api
+    build: ./services/event-ingest-stream
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - POSTGRES_DSN=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/securify
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 4. The Brain (ML Service)
+  ml-anomaly-service:
+    container_name: securify-ml
+    build: ./services/ml-anomaly-service
+    environment:
+      - REDIS_HOST=redis
+      - API_HOST=http://event-ingest-stream:8000
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+      event-ingest-stream:
+        condition: service_healthy
+
+  # 5. The Manager's Dashboard (Streamlit)
+  security-dashboard:
+    container_name: securify-dashboard
+    build: ./services/security-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - API_HOST=http://event-ingest-stream:8000
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      event-ingest-stream:
+        condition: service_healthy
+
+  # 6. The Data Generator (To Test!)
+  data-generator:
+    container_name: securify-generator
+    build: ./automation/data-generator
+    environment:
+      - INGEST_API_URL=http://event-ingest-stream:8000/ingest
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+
+    depends_on:
+      event-ingest-stream:
+        condition: service_healthy
+    command: [ "/app/wait-for-api.sh", "python", "/app/generate.py" ]

@@ -1,0 +1,49 @@
+# --- General Python Artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.pytest_cache/
+
+# Environment directories
+.venv/
+venv/
+env/
+
+# --- IDE/OS Generated Files ---
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# --- Ignore ML Models ---
+*.joblib
+model.joblib
+
+# --- Docker and Compose Artifacts ---
+# Ignore all built images and temporary files
+*.stack.tar
+*.log
+*.swp
+*.bak
+*.tmp
+
+# Docker-specific files to ignore
+# Volumes and context directories are often ignored to prevent accidental commit
+volumes/
+
+# --- Service-Specific Files to Ignore ---
+# Dependency directories that are rebuilt by Docker
+**/node_modules
+**/dist
+**/build
+
+# --- Configuration Secrets (VERY IMPORTANT) ---
+# Ensure local secrets or environment variables are never committed.
+.env
+*.env
+
+# --- Local Verification Scripts ---
+verify_tokens.py
+verify_dynamic_tokens.py

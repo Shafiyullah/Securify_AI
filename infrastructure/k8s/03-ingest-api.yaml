@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: event-ingest-stream
+  namespace: securify-ai
+spec:
+  replicas: 3 # Start with 3, HPA will scale this
+  selector:
+    matchLabels:
+      app: event-ingest-stream
+  template:
+    metadata:
+      labels:
+        app: event-ingest-stream # Used by Service & NetworkPolicy
+    spec:
+      containers:
+      - name: api
+        # The CI/CD pipeline replaces this tag
+        image: my-registry.com/securify-ai/event-ingest-stream:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: REDIS_HOST
+          value: "redis-svc"
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DSN
+          value: "postgresql://postgres:$(POSTGRES_PASSWORD)@postgres-svc:5432/securify"
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: securify-jwt-secret
+              key: JWT_SECRET_KEY
+        # --- SRE/Fault-Tolerance Requirement ---
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: event-ingest-stream-svc
+  namespace: securify-ai
+spec:
+  # LoadBalancer to expose to internet (or Ingress)
+  # For internal-only, use ClusterIP
+  type: LoadBalancer 
+  selector:
+    app: event-ingest-stream
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: event-ingest-stream-hpa
+  namespace: securify-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: event-ingest-stream
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 80

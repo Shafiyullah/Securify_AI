@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-dashboard
+  namespace: securify-ai
+spec:
+  replicas: 1 # Dashboards usually don't need many replicas
+  selector:
+    matchLabels:
+      app: security-dashboard
+  template:
+    metadata:
+      labels:
+        app: security-dashboard # Used by Service & NetworkPolicy
+    spec:
+      containers:
+      - name: dashboard
+        # The CI/CD pipeline replaces this tag
+        image: my-registry.com/securify-ai/security-dashboard:latest
+        ports:
+        - containerPort: 8501 # Streamlit's default port
+        env:
+        - name: API_HOST
+          # Use the internal Kubernetes service DNS name
+          value: "http://event-ingest-stream-svc"
+        readinessProbe:
+          httpGet:
+            # Streamlit has a built-in health endpoint
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 10
+          periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: security-dashboard-svc
+  namespace: securify-ai
+spec:
+  # Use LoadBalancer to expose the dashboard to the internet
+  type: LoadBalancer
+  selector:
+    app: security-dashboard
+  ports:
+  - protocol: TCP
+    port: 80 # External port
+    targetPort: 8501 # Pod's Streamlit port

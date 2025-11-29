@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-anomaly-service
+  namespace: securify-ai
+spec:
+  replicas: 2 # Start with 2, HPA will scale this
+  selector:
+    matchLabels:
+      app: ml-anomaly-service
+  template:
+    metadata:
+      labels:
+        app: ml-anomaly-service # Used by NetworkPolicy
+    spec:
+      containers:
+      - name: worker
+        # The CI/CD pipeline replaces this tag
+        image: my-registry.com/securify-ai/ml-anomaly-service:latest
+        env:
+        - name: REDIS_HOST
+          value: "redis-svc"
+        - name: API_HOST
+          # Use internal Kubernetes DNS name
+          value: "http://event-ingest-stream-svc"
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        # --- SRE/Fault-Tolerance Requirement ---
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 5000 # The Flask port
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 5000
+          initialDelaySeconds: 20
+          periodSeconds: 10
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ml-anomaly-service-hpa
+  namespace: securify-ai
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ml-anomaly-service
+  minReplicas: 2
+  maxReplicas: 15
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75 # Scale up when CPU gets busy

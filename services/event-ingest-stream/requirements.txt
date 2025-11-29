@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+redis[asyncio]
+asyncpg
+pydantic
+python-jose[cryptography]
+prometheus-fastapi-instrumentator
+python--dotenv

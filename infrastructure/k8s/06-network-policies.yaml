@@ -1,0 +1,95 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: securify-ai
+spec:
+  # Select all pods in the namespace
+  podSelector: {}
+  # Deny all Ingress and Egress traffic by default
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-traffic
+  namespace: securify-ai
+spec:
+  # Target the API pods
+  podSelector:
+    matchLabels:
+      app: event-ingest-stream
+  policyTypes:
+  - Ingress
+  - Egress
+  # Allow traffic FROM ML worker and Dashboard
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ml-anomaly-service
+    - podSelector:
+        matchLabels:
+          app: security-dashboard
+          # Allow from LoadBalancer (for external traffic like data-generator)
+    - ipBlock:
+        cidr: 0.0.0.0/0
+# Allow traffic TO Redis and Postgres
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    - podSelector:
+        matchLabels:
+          app: postgres
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ml-worker-traffic
+  namespace: securify-ai
+spec:
+  # Target the ML pods
+  podSelector:
+    matchLabels:
+      app: ml-anomaly-service
+  policyTypes:
+  - Egress
+  # Allow traffic TO Redis and the API
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    - podSelector:
+        matchLabels:
+          app: event-ingest-stream
+  # No Ingress needed, it pulls from Redis
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dashboard-traffic
+  namespace: securify-ai
+spec:
+  # Target the Dashboard pods
+  podSelector:
+    matchLabels:
+      app: security-dashboard
+  policyTypes:
+  - Ingress
+  - Egress
+  # Allow Ingress from LoadBalancer
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+  # Allow Egress tO the API
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: event-ingest-stream
