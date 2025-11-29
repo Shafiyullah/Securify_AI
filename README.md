@@ -2,11 +2,11 @@
 
 > **Real-time Security Anomaly Detection System powered by AI.**
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.95%2B-green)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.22%2B-red)
-![Redis](https://img.shields.io/badge/Redis-Stream-red)
-![Docker](https://img.shields.io/badge/Docker-Compose-blue)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.95%2B-green)](https://fastapi.tiangolo.com/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.22%2B-red)](https://streamlit.io/)
+[![Redis](https://img.shields.io/badge/Redis-Stream-red)](https://redis.io/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-blue)](https://docs.docker.com/compose/)
 
 **Securify AI** is a modern, event-driven security platform that ingests high-velocity logs, detects anomalies in real-time using Machine Learning, and visualizes threats on a live dashboard.
 
