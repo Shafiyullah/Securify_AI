@@ -43,7 +43,3 @@ volumes/
 # Ensure local secrets or environment variables are never committed.
 .env
 *.env
-
-# --- Local Verification Scripts ---
-verify_tokens.py
-verify_dynamic_tokens.py
