@@ -71,6 +71,8 @@ services:
     environment:
       - API_HOST=http://event-ingest-stream:8000
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DASHBOARD_USERNAME
+      - DASHBOARD_PASSWORD
     depends_on:
       event-ingest-stream:
         condition: service_healthy
