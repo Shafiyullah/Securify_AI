@@ -74,7 +74,7 @@ graph TD
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/securify-ai.git
+git clone https://github.com/Shafiyullah/securify-ai.git
 ```
 ```bash
 cd securify-ai
