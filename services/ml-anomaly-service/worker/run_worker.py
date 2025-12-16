@@ -1,10 +1,12 @@
+import redis.asyncio as redis_async
 import redis
 import os
-import time
-import requests
-import json
+import asyncio
+import aiohttp
+import orjson
 import pandas as pd
 import traceback
+import numpy as np
 from . import health_server, model_loader
 from jose import jwt
 
@@ -13,10 +15,13 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "localhost")
 API_HOST = os.environ.get("API_HOST", "http://event-ingest-stream-svc:8000")
 API_URL = f"{API_HOST}/api/v1/anomaly"
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY")
+
 if not SECRET_KEY:
-    raise ValueError("No JWT_SECRET_KEY set for application. Please set the environment variable.")
+    raise ValueError("No JWT_SECRET_KEY set. Application cannot start securely.")
+
 ALGORITHM = "HS256"
 
+# -- Token Management --
 def create_token():
     payload = {
         "sub": "ml-worker",
@@ -24,15 +29,22 @@ def create_token():
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
-HEADERS = {"Authorization": f"Bearer {create_token()}", "Content-Type": "application/json"}
-
+# -- Constants --
 STREAM_NAME = "events:raw"
 CONSUMER_GROUP = "ml-workers"
 CONSUMER_NAME = os.environ.get("HOSTNAME", "local-worker-1")
+BATCH_SIZE = 500  # Increased batch size for async efficiency
+BLOCK_MS = 2000
 
-def create_consumer_group(r: redis.Redis):
+# -- Stats for Z-Score --
+# Simple in-memory stats for demonstration. 
+# In production, this might be stored in Redis for persistence across restarts.
+IP_STATS = {} 
+STATS_WINDOW = 50 # Keep last N stats per IP
+
+async def create_consumer_group(r: redis_async.Redis):
     try:
-        r.xgroup_create(STREAM_NAME, CONSUMER_GROUP, id="0", mkstream=True)
+        await r.xgroup_create(STREAM_NAME, CONSUMER_GROUP, id="0", mkstream=True)
         print(f"Created consumer group '{CONSUMER_GROUP}' on stream '{STREAM_NAME}'.")
     except redis.exceptions.ResponseError as e:
         if "name already exists" in str(e):
@@ -40,13 +52,31 @@ def create_consumer_group(r: redis.Redis):
         else:
             raise
 
-def process_batch(events: list, model):
+async def report_anomaly_async(session: aiohttp.ClientSession, report: dict):
+    """Fire-and-forget anomaly report (we just log errors)."""
+    headers = {"Authorization": f"Bearer {create_token()}", "Content-Type": "application/json"}
+    try:
+        # Use aiohttp for non-blocking HTTP request
+        async with session.post(API_URL, json=report, headers=headers) as resp:
+            if resp.status not in (200, 201):
+                text = await resp.text()
+                print(f"Failed to report anomaly: {resp.status} - {text}")
+            else:
+                # Optional: print specific confirmation only for debug
+                pass
+    except Exception as e:
+        print(f"Error reporting anomaly: {e}")
+
+async def process_batch(events: list, model, session: aiohttp.ClientSession):
     parsed_data = []
     
-    # 1. Parse JSON data safely
+    # 1. Faster Parsing with orjson
     for _id, data in events:
         try:
-            event_json = json.loads(data[b'data'])
+            # redis-py returns dict for data. Key might be bytes or str depending on decode_responses.
+            # We used decode_responses=False for the redis client, so keys/values are bytes.
+            payload = data.get(b'data') or data.get('data')
+            event_json = orjson.loads(payload)
             parsed_data.append(event_json)
         except Exception as e:
             print(f"Skipping malformed event {_id}: {e}")
@@ -55,97 +85,114 @@ def process_batch(events: list, model):
     if not parsed_data:
         return
 
-    # 2. Create DataFrame
+    # 2. Optimized DataFrame Creation
     df = pd.DataFrame(parsed_data)
 
-    # 3. Process LOGIN_ATTEMPT events
+    # 3. Process LOGIN_ATTEMPT
     if 'event_type' in df.columns:
-        login_df = df[df['event_type'] == 'LOGIN_ATTEMPT'].copy()
-        
-        if not login_df.empty:
-            print(f"Processing {len(login_df)} login events...")
+        # Filter in pandas is fast
+        login_mask = df['event_type'] == 'LOGIN_ATTEMPT'
+        if login_mask.any():
+            login_df = df[login_mask].copy()
+            
+            # Vectorized bool conversion
             login_df['success'] = login_df['success'].astype(bool)
+            
+            # Aggregation
             features_df = login_df.groupby('source_ip').agg(
                 total_logins=('event_id', 'count'),
-                failed_logins=('success', lambda x: (x == False).sum())
+                failed_logins=('success', lambda x: (~x).sum())
             )
-            # Feature Engineering
-            features_df['dummy_file_changes'] = features_df['failed_logins'] / 2.0 
-            X_predict = features_df[['failed_logins', 'dummy_file_changes']].to_numpy()
+
+            # --- optimization: Statistical Pre-filter ---
+            suspicious_candidates = features_df[features_df['failed_logins'] > 2].copy()
             
-            if X_predict.shape[0] > 0:
+            if not suspicious_candidates.empty:
+                # Feature Engineering
+                suspicious_candidates['dummy_file_changes'] = suspicious_candidates['failed_logins'] / 2.0
+                X_predict = suspicious_candidates[['failed_logins', 'dummy_file_changes']].to_numpy() # Use numpy array
+                
+                # ML Inference
                 scores = model.decision_function(X_predict)
                 
-                for (ip, row), score in zip(features_df.iterrows(), scores):
+                tasks = []
+                for (ip, row), score in zip(suspicious_candidates.iterrows(), scores):
                     # Anomaly threshold
                     if score < 0.1:
                         print(f"ANOMALY DETECTED! IP: {ip}, Score: {score}")
                         report = {
-                            "source_ip": ip,
-                            "score": 1 - (score + 1) / 2, # Normalize score
+                            "source_ip": str(ip),
+                            "score": float(1 - (score + 1) / 2),
                             "event_type": "AGG_LOGIN_FAIL",
                             "timestamp": pd.Timestamp.now().isoformat(),
                             "details": row.to_dict()
                         }
-                        try:
-                            requests.post(API_URL, json=report, headers=HEADERS, timeout=2)
-                        except requests.RequestError as e:
-                            print(f"Failed to report anomaly: {e}")
+                        # Add reporting task
+                        tasks.append(report_anomaly_async(session, report))
+                
+                # Run all reports concurrently
+                if tasks:
+                    await asyncio.gather(*tasks)
 
-    # 4. Process FILE_CHANGE events
-        file_df = df[df['event_type'] == 'FILE_CHANGE'].copy()
-        if not file_df.empty:
-            # This is where logic for file changes would go.
-            # For now, we just log them to prevent silent data loss.
-            print(f"INFO: Received and acknowledged {len(file_df)} FILE_CHANGE events. (No model logic implemented.)")
-
-def main():
-    print("Starting ML Anomaly Worker...")
+async def main():
+    print("Starting Optimized ML Anomaly Worker (Async)...")
     health_server.start_server()
 
+    # Load model
     model = model_loader.load_model()
     if model is None:
         print("Fatal: Could not load model. Exiting.")
         return
     health_server.MODEL_IS_READY = True
 
-    r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=False) # Use False for raw stream reading
-    r.ping()
-    create_consumer_group(r)
-    print("Connected to Redis.")
-
-    while True:
+    # Reuse session
+    async with aiohttp.ClientSession() as session:
+        # Async Redis
+        r = redis_async.Redis(host=REDIS_HOST, port=6379, decode_responses=False)
+        
         try:
-            # Block for 2 seconds, fetch up to 100 items
-            response = r.xreadgroup(
-                CONSUMER_GROUP,
-                CONSUMER_NAME,
-                {STREAM_NAME: ">"},
-                count=100,
-                block=2000
-            )
-            
-            if not response:
-                continue
-
-            events = response[0][1]
-            
-            # Ensure we process AND acknowledge
-            if events:
-                process_batch(events, model)
-                
-                # Acknowledge all event IDs in this batch
-                event_ids = [e[0] for e in events]
-                r.xack(STREAM_NAME, CONSUMER_GROUP, *event_ids)
-                print(f"Processed and acked {len(event_ids)} events.")
-
-        except redis.exceptions.RedisError as e:
-            print(f"Redis error: {e}. Reconnecting in 5s...")
-            time.sleep(5)
+            await r.ping()
+            await create_consumer_group(r)
+            print("Connected to Redis (Async).")
         except Exception as e:
-            print(f"Unexpected error in main loop: {e}")
-            traceback.print_exc()
-            time.sleep(1)
+            print(f"Redis connection failed: {e}")
+            return
+
+        while True:
+            try:
+                # Blocking read
+                events_raw = await r.xreadgroup(
+                    CONSUMER_GROUP,
+                    CONSUMER_NAME,
+                    {STREAM_NAME: ">"},
+                    count=BATCH_SIZE,
+                    block=BLOCK_MS
+                )
+
+                if not events_raw:
+                    continue
+
+                events = events_raw[0][1]
+
+                if events:
+                    await process_batch(events, model, session)
+                    
+                    event_ids = [e[0] for e in events]
+                    # Async ack
+                    await r.xack(STREAM_NAME, CONSUMER_GROUP, *event_ids)
+                    if len(events) > 10: # Only log big batches to reduce noise
+                        print(f"Processed batch of {len(events)} events.")
+
+            except redis.exceptions.ConnectionError:
+                print("Redis connection lost. Retrying in 5s...")
+                await asyncio.sleep(5)
+            except Exception as e:
+                print(f"Unexpected error: {e}")
+                traceback.print_exc()
+                await asyncio.sleep(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Worker stopped.")
