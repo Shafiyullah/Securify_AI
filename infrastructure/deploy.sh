@@ -9,14 +9,18 @@ echo "--- DEPLOYING Securify AI to namespace: ${NAMESPACE} ---"
 echo "Ensuring namespace '${NAMESPACE}' exists..."
 kubectl create namespace ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
-# 2. Create Secrets (do this first!)
-# These should be created from env vars or a vault, not hardcoded
+# Check for required environment variables
+if [ -z "$POSTGRES_PASSWORD" ] || [ -z "$JWT_SECRET_KEY" ]; then
+    echo "Error: POSTGRES_PASSWORD and JWT_SECRET_KEY environment variables must be set."
+    exit 1
+fi
+
 kubectl create secret generic postgres-secret \
-    --from-literal=POSTGRES_PASSWORD='YOUR PASSWORDHERE' \
+    --from-literal=POSTGRES_PASSWORD="${POSTGRES_PASSWORD}" \
     -n ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
 kubectl create secret generic securify-jwt-secret \
-    --from-literal=JWT_SECRET_KEY='SECRET KEY HERE' \
+    --from-literal=JWT_SECRET_KEY="${JWT_SECRET_KEY}" \
     -n ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
 
 # 3. Apply all other resources
