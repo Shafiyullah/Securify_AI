@@ -24,7 +24,12 @@ if not SECRET_KEY:
     pass 
 
 if not SECRET_KEY:
-     SECRET_KEY = "placeholder_for_build" # Prevent crash if just building container, but runtime will fail auth
+    # In production, we must fail.
+    # For CI/Build process where env vars might be missing, we can skip ONLY if explicitly told.
+    if os.environ.get("CI") != "true":
+        raise ValueError("No JWT_SECRET_KEY set. Dashboard cannot verify tokens.")
+    else:
+        SECRET_KEY = "build_placeholder"
 
 ALGORITHM = "HS256"
 
