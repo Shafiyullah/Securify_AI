@@ -6,3 +6,5 @@ requests
 pandas
 numpy
 python-jose[cryptography]
+aiohttp
+orjson
