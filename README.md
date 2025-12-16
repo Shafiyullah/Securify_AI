@@ -110,7 +110,7 @@ Access the services:
 ### 1. Log in to the Dashboard
 Open http://localhost:8501
 -   **Username**: `admin`
--   **Password**: `password`
+-   **Password**: (The value you set for `DASHBOARD_PASSWORD` in .env)
 
 ### 2. Generate Mock Traffic
 The project includes a data generator to simulate traffic (logins, file changes).
