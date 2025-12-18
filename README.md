@@ -64,6 +64,15 @@ graph TD
 
 ---
 
+## 🚀 Use Cases
+*See [docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md) for full integration details.*
+
+1.  **Corporate Security**: Detect unusual employee logins (e.g., from wrong countries).
+2.  **App Protection**: Stop credential stuffing attacks on your Login page.
+3.  **Server Monitoring**: Watch SSH logs (`/var/log/auth.log`) for brute-force attempts.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -126,6 +135,28 @@ As the generator sends data:
 1.  **Ingest Service** receives logs.
 2.  **ML Service** analyzes them in the background.
 3.  If a "Brute Force" attack or "Suspicious File Access" is detected, it appears on the **Dashboard**.
+
+---
+
+## Easy Integration
+
+We provide ready-to-use tools to connect your systems in minutes:
+
+### 1. For Developers (Python SDK)
+Use our pre-built client to log events from your code.
+```python
+# Copy integrations/python-client/securify_client.py to your project
+from securify_client import SecurifyClient
+
+client = SecurifyClient(api_url="http://localhost:8000", api_token="YOUR_TOKEN")
+client.log_login(username="admin", success=False)
+```
+
+### 2. For Sysadmins (Log Shipper)
+Watch server logs (like SSH) and forward them automatically.
+```bash
+python integrations/log-shipper/log_shipper.py --file /var/log/auth.log --token YOUR_TOKEN
+```
 
 ---
 
