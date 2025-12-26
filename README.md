@@ -64,7 +64,7 @@ graph TD
 
 ---
 
-## 🚀 Use Cases
+## Use Cases
 *See [docs/USAGE_GUIDE.md](docs/USAGE_GUIDE.md) for full integration details.*
 
 1.  **Corporate Security**: Detect unusual employee logins (e.g., from wrong countries).

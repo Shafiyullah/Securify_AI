@@ -34,14 +34,13 @@ Before you can send data, you need an API Token (like a password for robots).
     ```bash
     python scripts/generate_token.py
     ```
-3.  Copy the output (starts with `ey...`). This is your `YOUR_TOKEN`.
+3.  Copy the output. This is your `YOUR_TOKEN`.
 
 ### Option A: The "One-Liner" (For Sysadmins)
 
 Use the included **Log Shipper** to watch a log file and forward events automatically.
 
 ```bash
-# Run this on your server
 python integrations/log-shipper/log_shipper.py --file /var/log/auth.log --token YOUR_TOKEN
 ```
 
